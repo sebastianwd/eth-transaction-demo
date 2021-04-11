@@ -3,21 +3,15 @@ import { useEffect, useState } from 'react'
 import styled from 'styled-components'
 import Web3 from 'web3'
 import { isEmpty } from 'lodash'
+import { ethers } from 'ethers'
 import toast from 'react-hot-toast'
 import { useForm } from 'react-hook-form'
 import { ETHIcon } from '../src/components/icons/eth'
 import { MMIcon } from '../src/components/icons/metamask'
 import { isBrowser } from '../src/utils/is-browser'
+import { payWithMetamask } from '../src/utils/pay-with-metamask'
 
 const paymentAddress = process.env.NEXT_PUBLIC_ETH_ADDRESS
-
-function getWeb3Instance() {
-  if (window.ethereum) {
-    return new Web3(window.ethereum)
-  } else {
-    toast.error('No Metamask (or other Web3 Provider) installed')
-  }
-}
 
 export default function Home() {
   const {
@@ -27,86 +21,79 @@ export default function Home() {
     formState: { errors },
   } = useForm()
 
-  const [isConnected, setConnected] = useState()
+  const [isConnectionAvailable, setConnectionAvailable] = useState(false)
 
   const [connectedWallet, setWallet] = useState()
 
-  const checkConnection = async () => {
-    // Check if browser is running Metamask
-    const web3 = getWeb3Instance()
+  console.log('state', isConnectionAvailable, connectedWallet)
 
-    if (!web3) {
-      return
+  function checkConnection() {
+    if (window.ethereum) {
+      return true
     }
 
-    setConnected(true)
+    toast.error('No Metamask (or other Web3 Provider) installed')
 
-    // Check if User is already connected by retrieving the accounts
-    const accounts = await web3.eth.getAccounts()
-
-    if (!isEmpty(accounts)) {
-      setWallet(accounts[0])
-    }
+    return false
   }
 
   useEffect(() => {
-    checkConnection()
+    const isConnected = checkConnection()
+
+    setConnectionAvailable(isConnected)
+
+    if (isConnected) {
+      // Check if user has wallet already connected
+      connectWalletAccount()
+    }
   }, [])
 
-  const connectWallet = async () => {
+  const connectWalletAccount = async () => {
+    const accounts = await ethereum.request({ method: 'eth_accounts' })
+
+    if (!isEmpty(accounts)) {
+      setWallet(accounts[0])
+
+      return accounts[0]
+    }
+  }
+
+  const requestWalletConnection = async () => {
     try {
       await ethereum.enable()
 
-      const accounts = await web3.eth.getAccounts()
-
-      if (!isEmpty(accounts)) {
-        setWallet(accounts[0])
-      }
+      return await connectWalletAccount()
     } catch (err) {
       toast.error('User denied account access')
     }
   }
 
   const onSubmit = async (data) => {
-    if (!isConnected) {
-      await checkConnection()
+    if (!isConnectionAvailable) {
+      checkConnection()
     }
 
-    if (!connectedWallet && isConnected) {
-      await connectWallet()
+    let wallet = connectedWallet
+
+    if (isConnectionAvailable && !wallet) {
+      wallet = await requestWalletConnection()
     }
 
-    if (!connectedWallet) {
+    if (!wallet) {
       return
     }
 
-    const { amountEth } = data
+    const { ethAmount } = data
 
-    if (!amountEth) {
+    console.log('dcvsdfs', data)
+
+    if (!ethAmount) {
       toast.error('Type an amount')
 
       return
     }
 
-    let accounts = await web3.eth.getAccounts()
-    window.web3.eth.defaultAccount = accounts[0]
-
-    window.web3.eth.sendTransaction(
-      {
-        from: window.web3.eth.defaultAccount,
-        to: paymentAddress,
-        value: window.web3.utils.toWei(amountEth, 'ether'),
-      },
-      (err, transactionId) => {
-        if (err) {
-          console.log('Payment failed', err)
-          $('#status').html('Payment failed')
-        } else {
-          console.log('Payment successful', transactionId)
-          $('#status').html('Payment successful')
-        }
-      },
-    )
+    await payWithMetamask(wallet, paymentAddress, ethAmount)
   }
 
   return (
@@ -118,7 +105,7 @@ export default function Home() {
       <FormContainer onSubmit={handleSubmit(onSubmit)}>
         <InputContainer>
           <ETHIcon />
-          <Input name='ethAmount' type='number' />
+          <Input {...register('ethAmount')} />
           <span>ETH</span>
         </InputContainer>
         <Button type='submit'>
